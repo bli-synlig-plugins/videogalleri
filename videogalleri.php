@@ -1,6 +1,7 @@
 <?php
 /**
  * Plugin Name: Videogalleri
+ * Plugin URI: https://wordpress-plugins-docs.vercel.app/plugins/videogalleri
  * Description: Videogalleri med horisontal slider og egne undersider per video. YouTube/Vimeo med kobling til prosjekter.
  * Version: 1.1.1
  * Author: Benjamin
