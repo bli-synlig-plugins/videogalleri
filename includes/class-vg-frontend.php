@@ -425,6 +425,7 @@ class VG_Frontend {
 	}
 
 	private static function render_video_player(array $item, $wrapper_class = 'vg-single__video') {
+		$kind = isset($item['video']['kind']) ? $item['video']['kind'] : 'iframe';
 		ob_start();
 		?>
 		<div class="<?php echo esc_attr($wrapper_class); ?>">
@@ -432,13 +433,22 @@ class VG_Frontend {
 				class="vg-single__video-inner"
 				style="padding-top:<?php echo esc_attr($item['aspect_ratio']); ?>"
 			>
-				<iframe
-					src="<?php echo esc_url($item['video']['embed_url']); ?>"
-					title="<?php echo esc_attr($item['title']); ?>"
-					allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-					allowfullscreen
-					loading="lazy"
-				></iframe>
+				<?php if ($kind === 'file') : ?>
+					<video
+						src="<?php echo esc_url($item['video']['embed_url']); ?>"
+						controls
+						playsinline
+						preload="metadata"
+					></video>
+				<?php else : ?>
+					<iframe
+						src="<?php echo esc_url($item['video']['embed_url']); ?>"
+						title="<?php echo esc_attr($item['title']); ?>"
+						allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+						allowfullscreen
+						loading="lazy"
+					></iframe>
+				<?php endif; ?>
 			</div>
 		</div>
 		<?php

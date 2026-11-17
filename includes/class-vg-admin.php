@@ -98,17 +98,20 @@ class VG_Admin {
 
 		$info = VG_Repository::get_info($post->ID);
 		$url = VG_Repository::get_video_url($post->ID);
+		$video = VG_Repository::parse_video_url($url);
 		$duration = VG_Repository::format_duration(VG_Repository::get_duration($post->ID));
 		?>
 		<p class="description" style="margin-top:0;">
-			Lim inn en YouTube- eller Vimeo-lenke. Varighet og thumbnail hentes automatisk ved lagring.
+			Lim inn en YouTube-, Vimeo- eller Kontainer-lenke, eller Kontainer sin iframe- eller video-kode.
+			Varighet og thumbnail hentes automatisk for YouTube og Vimeo.
+			For Kontainer setter du utvalgt bilde selv; varighet hentes ikke.
 		</p>
 		<table class="form-table" role="presentation">
 			<tr>
 				<th scope="row"><label for="vg_video_url">Videolenke</label></th>
 				<td>
 					<input
-						type="url"
+						type="text"
 						name="vg_video_url"
 						id="vg_video_url"
 						class="large-text"
@@ -117,7 +120,9 @@ class VG_Admin {
 					>
 					<?php if ($duration !== '') : ?>
 						<p class="description">Varighet: <?php echo esc_html($duration); ?></p>
-					<?php else : ?>
+					<?php elseif ($video && $video['provider'] === 'kontainer') : ?>
+						<p class="description">Varighet hentes ikke fra Kontainer. Sett utvalgt bilde som thumbnail.</p>
+					<?php elseif ($video) : ?>
 						<p class="description">Varighet ble ikke hentet. Lagre på nytt, eller sjekk at Vimeo-lenken er offentlig/embargbar.</p>
 					<?php endif; ?>
 					<?php if ($post->post_status === 'publish') : ?>

@@ -253,7 +253,8 @@ button.vg-slider__nav:disabled {
 	overflow: hidden;
 }
 
-.vg-single__video-inner iframe {
+.vg-single__video-inner iframe,
+.vg-single__video-inner video {
 	position: absolute;
 	inset: 0;
 	width: 100%;

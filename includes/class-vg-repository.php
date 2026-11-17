@@ -34,16 +34,64 @@ class VG_Repository {
 		return (string) get_post_meta($post_id, VG_META_VIDEO_URL, true);
 	}
 
-	public static function set_video_url($post_id, $url) {
-		$url = esc_url_raw(trim((string) $url));
-		if ($url !== '' && self::parse_video_url($url)) {
+	public static function set_video_url($post_id, $raw) {
+		$previous = self::parse_video_url(self::get_video_url($post_id));
+		$input = self::normalize_video_input($raw);
+		$url = esc_url_raw($input['url']);
+		$video = ($url !== '') ? self::parse_video_url($url) : null;
+
+		if ($video) {
 			update_post_meta($post_id, VG_META_VIDEO_URL, $url);
-			self::sync_video_meta($post_id, $url);
+			$input['keep_aspect_ratio'] = $previous && $previous['provider'] === 'kontainer';
+			self::sync_video_meta($post_id, $url, $input);
 		} else {
 			delete_post_meta($post_id, VG_META_VIDEO_URL);
 			delete_post_meta($post_id, VG_META_DURATION);
 			delete_post_meta($post_id, VG_META_ASPECT_RATIO);
 		}
+	}
+
+	/**
+	 * Trekk ut en spillbar URL fra en ren lenke eller fra Kontainer sin iframe/video-kode.
+	 *
+	 * @return array{url:string, width:float, height:float}
+	 */
+	private static function normalize_video_input($raw) {
+		$raw = trim((string) $raw);
+		$input = array(
+			'url'    => $raw,
+			'width'  => 0.0,
+			'height' => 0.0,
+		);
+
+		if ($raw === '' || strpos($raw, '<') === false) {
+			return $input;
+		}
+
+		if (!preg_match('#<(iframe|video)\b([^>]*)>#i', $raw, $tag)) {
+			return $input;
+		}
+
+		$attrs = $tag[2];
+		if (preg_match('#\bwidth\s*=\s*(["\']?)(\d+(?:\.\d+)?)\1#i', $attrs, $width)) {
+			$input['width'] = (float) $width[2];
+		}
+		if (preg_match('#\bheight\s*=\s*(["\']?)(\d+(?:\.\d+)?)\1#i', $attrs, $height)) {
+			$input['height'] = (float) $height[2];
+		}
+
+		$url = '';
+		if (preg_match('#\bsrc\s*=\s*(["\'])(.*?)\1#i', $attrs, $src)) {
+			$url = html_entity_decode($src[2], ENT_QUOTES, 'UTF-8');
+		} elseif (strcasecmp($tag[1], 'video') === 0 && preg_match('#<source\b[^>]*\bsrc\s*=\s*(["\'])(.*?)\1#i', $raw, $source)) {
+			$url = html_entity_decode($source[2], ENT_QUOTES, 'UTF-8');
+		}
+
+		if ($url !== '') {
+			$input['url'] = trim($url);
+		}
+
+		return $input;
 	}
 
 	public static function get_aspect_ratio($post_id) {
@@ -100,8 +148,26 @@ class VG_Repository {
 		return sprintf('%d:%02d', $minutes, $secs);
 	}
 
-	public static function sync_video_meta($post_id, $url) {
+	/**
+	 * @param array{width?:float, height?:float, keep_aspect_ratio?:bool} $context
+	 */
+	public static function sync_video_meta($post_id, $url, array $context = array()) {
 		$video = self::parse_video_url($url);
+
+		if ($video && $video['provider'] === 'kontainer') {
+			self::set_duration($post_id, 0);
+
+			$width = isset($context['width']) ? (float) $context['width'] : 0;
+			$height = isset($context['height']) ? (float) $context['height'] : 0;
+			if ($width > 0 && $height > 0) {
+				self::set_aspect_ratio($post_id, $width, $height);
+			} elseif (empty($context['keep_aspect_ratio'])) {
+				delete_post_meta($post_id, VG_META_ASPECT_RATIO);
+			}
+
+			return;
+		}
+
 		$oembed = self::fetch_oembed_data($url, $video);
 
 		if ($oembed) {
@@ -318,6 +384,10 @@ class VG_Repository {
 			return 'https://img.youtube.com/vi/' . $video['id'] . '/hqdefault.jpg';
 		}
 
+		if ($video['provider'] === 'kontainer') {
+			return '';
+		}
+
 		$oembed = self::fetch_oembed_data(self::get_video_url($post_id));
 		return (!empty($oembed['thumbnail_url'])) ? $oembed['thumbnail_url'] : '';
 	}
@@ -387,7 +457,7 @@ class VG_Repository {
 	}
 
 	/**
-	 * @return array{provider:string, id:string, embed_url:string}|null
+	 * @return array{provider:string, id:string, embed_url:string, kind?:string, is_vertical?:bool}|null
 	 */
 	public static function parse_video_url($url) {
 		$url = trim((string) $url);
@@ -427,7 +497,47 @@ class VG_Repository {
 			);
 		}
 
+		$kontainer = self::parse_kontainer_url($url);
+		if ($kontainer) {
+			return $kontainer;
+		}
+
 		return null;
+	}
+
+	/**
+	 * @return array{provider:string, id:string, embed_url:string, kind:string}|null
+	 */
+	private static function parse_kontainer_url($url) {
+		$parts = wp_parse_url($url);
+		if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+			return null;
+		}
+
+		if (strtolower($parts['scheme']) !== 'https') {
+			return null;
+		}
+
+		$host = strtolower($parts['host']);
+		$suffix = '.kontainer.com';
+		$is_kontainer = ($host === 'kontainer.com' || substr($host, -strlen($suffix)) === $suffix);
+		if (!$is_kontainer) {
+			return null;
+		}
+
+		$path = isset($parts['path']) ? trim((string) $parts['path'], '/') : '';
+		$segments = $path === '' ? array() : explode('/', $path);
+		$id = $segments ? (string) end($segments) : $host;
+
+		$extension = strtolower(pathinfo($id, PATHINFO_EXTENSION));
+		$kind = in_array($extension, array('mp4', 'webm', 'm3u8', 'mov', 'ogv'), true) ? 'file' : 'iframe';
+
+		return array(
+			'provider'  => 'kontainer',
+			'id'        => $id,
+			'embed_url' => $url,
+			'kind'      => $kind,
+		);
 	}
 
 	/**

@@ -2,15 +2,15 @@
 /**
  * Plugin Name: Videogalleri
  * Plugin URI: https://wordpress-plugins-docs.vercel.app/plugins/videogalleri
- * Description: Videogalleri med horisontal slider og egne undersider per video. YouTube/Vimeo med kobling til prosjekter.
- * Version: 1.1.1
+ * Description: Videogalleri med horisontal slider og egne undersider per video. YouTube, Vimeo og Kontainer med kobling til prosjekter.
+ * Version: 1.2.0
  * Author: Benjamin
  * Text Domain: videogalleri
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('VG_VERSION', '1.1.1');
+define('VG_VERSION', '1.2.0');
 define('VG_PLUGIN_FILE', __FILE__);
 define('VG_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('VG_PLUGIN_URL', plugin_dir_url(__FILE__));
