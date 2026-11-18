@@ -1,8 +1,8 @@
 # Videogalleri
 
-WordPress-plugin for videogalleri med horisontal slider, egne undersider per video, og støtte for YouTube/Vimeo. Videoer kan kobles til prosjekter, sider eller innlegg.
+WordPress-plugin for videogalleri med horisontal slider, frittstående videospiller og egne undersider per video. Støtte for YouTube, Vimeo og Kontainer. Videoer kan kobles til prosjekter, sider eller innlegg.
 
-**Versjon:** 1.1.1  
+**Versjon:** 1.3.0  
 **Forfatter:** Benjamin Pedersen
 
 ## Krav
@@ -20,7 +20,7 @@ WordPress-plugin for videogalleri med horisontal slider, egne undersider per vid
 ## Admin
 
 - **Videogalleri** i menyen: opprett og rediger videoer (tittel, miniatyrbilde, rekkefølge).
-- **Video**-felt: lim inn YouTube- eller Vimeo-URL. Varighet og thumbnail hentes automatisk ved lagring.
+- **Video**-felt: lim inn YouTube-, Vimeo- eller Kontainer-lenke, eller Kontainer sin iframe- eller video-kode. Varighet og thumbnail hentes automatisk for YouTube og Vimeo. For Kontainer setter du utvalgt bilde selv.
 - **Knytt til prosjekt**: koble video til side, innlegg eller annet innhold.
 - **Rekkefølge**: egen side for å sortere videoer (drag-and-drop).
 - **Innstillinger**: farger for avspillingsknapp, videoundersider og «Se prosjekt»-knapp.
@@ -35,10 +35,13 @@ Videoundersider bruker slug **`/video/{navn}/`**.
 | `[videogalleri prosjekt_id="123"]` | Samme, filtrert på koblet innhold |
 | `[videogalleri_video]` | Embed for video koblet til gjeldende side/innlegg |
 | `[videogalleri_video video_id="456" tittel="ja" info="ja" lenke="ja"]` | Embed med valgfrie attributter |
+| `[videogalleri_spiller kilde="https://…"]` | Frittstående spiller. Videofiler får egen kontrollinje. |
 
 ## UX Builder
 
 Elementet **Videogalleri** finnes under **Content** (krever Flatsome UX Builder). Valgfritt filter på **prosjekt-ID**.
+
+Elementet **Videospiller** ligger samme sted. Lim inn en YouTube-, Vimeo- eller Kontainer-lenke, eller iframe-/video-kode. Avrunding og kontrollfarge settes på elementet. Kontrollinjen (avspilling, tid, spoling, lyd og fullskjerm) gjelder videofiler. En iframe bruker leverandørens egne kontroller, men rammen kan fortsatt avrundes.
 
 ## Lisens
 

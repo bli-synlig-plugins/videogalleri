@@ -12,8 +12,8 @@ class VG_Settings {
 
 	public static function init() {
 		add_action('admin_menu', array(__CLASS__, 'register_page'));
-		add_action('admin_init', array(__CLASS__, 'register_settings'));
 		add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueue_assets'));
+		add_action('wp_ajax_vg_save_settings', array(__CLASS__, 'ajax_save'));
 	}
 
 	public static function register_page() {
@@ -25,34 +25,6 @@ class VG_Settings {
 			'vg-innstillinger',
 			array(__CLASS__, 'render_page')
 		);
-	}
-
-	public static function register_settings() {
-		register_setting('vg_settings', self::OPTION_PLAY_COLOR, array(
-			'type'              => 'string',
-			'sanitize_callback' => array(__CLASS__, 'sanitize_color'),
-			'default'           => '',
-		));
-		register_setting('vg_settings', self::OPTION_SINGLE_BG, array(
-			'type'              => 'string',
-			'sanitize_callback' => array(__CLASS__, 'sanitize_color'),
-			'default'           => '',
-		));
-		register_setting('vg_settings', self::OPTION_MORE_BG, array(
-			'type'              => 'string',
-			'sanitize_callback' => array(__CLASS__, 'sanitize_color'),
-			'default'           => '',
-		));
-		register_setting('vg_settings', self::OPTION_PROJECT_BTN_COLOR, array(
-			'type'              => 'string',
-			'sanitize_callback' => array(__CLASS__, 'sanitize_button_color'),
-			'default'           => 'primary',
-		));
-		register_setting('vg_settings', self::OPTION_PROJECT_BTN_SIZE, array(
-			'type'              => 'string',
-			'sanitize_callback' => array(__CLASS__, 'sanitize_button_size'),
-			'default'           => '',
-		));
 	}
 
 	public static function get_button_colors() {
@@ -80,16 +52,73 @@ class VG_Settings {
 		wp_enqueue_style(
 			'vg-admin-settings',
 			VG_PLUGIN_URL . 'assets/admin-settings.css',
-			array(),
+			array('wp-color-picker'),
 			VG_VERSION
 		);
-		wp_enqueue_style('wp-color-picker');
 		wp_enqueue_script(
 			'vg-settings',
 			VG_PLUGIN_URL . 'assets/admin-settings.js',
 			array('wp-color-picker', 'jquery'),
 			VG_VERSION,
 			true
+		);
+		wp_localize_script('vg-settings', 'vgSettings', array(
+			'settings' => self::export_settings(),
+			'ajaxUrl'  => admin_url('admin-ajax.php'),
+			'nonce'    => wp_create_nonce('vg_save_settings'),
+			'i18n'     => array(
+				'saved' => 'Endringene er lagret',
+				'error' => 'Kunne ikke lagre innstillingene. Prøv igjen.',
+				'saving' => 'Lagrer…',
+				'save'  => 'Lagre endringer',
+			),
+		));
+	}
+
+	public static function ajax_save() {
+		if (!current_user_can('manage_options')) {
+			wp_send_json_error(array('message' => 'Ingen tilgang.'), 403);
+		}
+
+		check_ajax_referer('vg_save_settings', 'nonce');
+
+		$raw = isset($_POST['settings']) ? wp_unslash($_POST['settings']) : '';
+		if (is_string($raw)) {
+			$decoded = json_decode($raw, true);
+			$raw = is_array($decoded) ? $decoded : array();
+		}
+		if (!is_array($raw)) {
+			$raw = array();
+		}
+
+		$clean = self::sanitize_settings($raw);
+		foreach ($clean as $key => $value) {
+			update_option($key, $value);
+		}
+
+		wp_send_json_success(array(
+			'settings' => self::export_settings(),
+			'message'  => 'Endringene er lagret',
+		));
+	}
+
+	public static function sanitize_settings(array $raw) {
+		return array(
+			self::OPTION_PLAY_COLOR        => self::sanitize_color(isset($raw[self::OPTION_PLAY_COLOR]) ? $raw[self::OPTION_PLAY_COLOR] : ''),
+			self::OPTION_SINGLE_BG         => self::sanitize_color(isset($raw[self::OPTION_SINGLE_BG]) ? $raw[self::OPTION_SINGLE_BG] : ''),
+			self::OPTION_MORE_BG           => self::sanitize_color(isset($raw[self::OPTION_MORE_BG]) ? $raw[self::OPTION_MORE_BG] : ''),
+			self::OPTION_PROJECT_BTN_COLOR => self::sanitize_button_color(isset($raw[self::OPTION_PROJECT_BTN_COLOR]) ? $raw[self::OPTION_PROJECT_BTN_COLOR] : ''),
+			self::OPTION_PROJECT_BTN_SIZE  => self::sanitize_button_size(isset($raw[self::OPTION_PROJECT_BTN_SIZE]) ? $raw[self::OPTION_PROJECT_BTN_SIZE] : ''),
+		);
+	}
+
+	public static function export_settings() {
+		return array(
+			self::OPTION_PLAY_COLOR        => self::get(self::OPTION_PLAY_COLOR),
+			self::OPTION_SINGLE_BG         => self::get(self::OPTION_SINGLE_BG),
+			self::OPTION_MORE_BG           => self::get(self::OPTION_MORE_BG),
+			self::OPTION_PROJECT_BTN_COLOR => self::get(self::OPTION_PROJECT_BTN_COLOR),
+			self::OPTION_PROJECT_BTN_SIZE  => self::get(self::OPTION_PROJECT_BTN_SIZE),
 		);
 	}
 
@@ -99,7 +128,7 @@ class VG_Settings {
 			return '';
 		}
 
-		if (preg_match('/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/', $value)) {
+		if (preg_match('/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/', $value)) {
 			return $value;
 		}
 
@@ -188,128 +217,152 @@ class VG_Settings {
 		if (!current_user_can('manage_options')) {
 			wp_die('Ingen tilgang');
 		}
+
+		$opts = self::export_settings();
 		?>
-		<div class="wrap vg-settings-wrap">
-			<h1>Innstillinger</h1>
-			<p class="vg-settings-intro">
-				Globale visningsvalg for videogalleri og videoundersider. Endringer gjelder på tvers av nettstedet.
-			</p>
+		<div class="wrap vg-admin">
+			<div class="vg-app">
+				<header class="vg-top">
+					<div>
+						<h1>Innstillinger</h1>
+						<p>Globale visningsvalg for videogalleri og videoundersider. Endringer gjelder på tvers av nettstedet.</p>
+					</div>
+					<span class="vg-pill">v<?php echo esc_html(VG_VERSION); ?></span>
+				</header>
 
-			<form method="post" action="options.php">
-				<?php settings_fields('vg_settings'); ?>
+				<nav class="vg-nav" role="tablist" aria-label="Innstillinger">
+					<button type="button" role="tab" aria-selected="true" data-tab="slider">Slider</button>
+					<button type="button" role="tab" aria-selected="false" data-tab="sider">Videosider</button>
+					<button type="button" role="tab" aria-selected="false" data-tab="flere">Se flere videoer</button>
+					<button type="button" role="tab" aria-selected="false" data-tab="koder">Shortcodes</button>
+				</nav>
 
-				<div class="vg-settings-section">
-					<h2 class="vg-settings-section__title">Slider</h2>
-					<p class="vg-settings-section__lead">Utseende på videokortene i den horisontale slideren.</p>
-					<table class="form-table" role="presentation">
-						<tr>
-							<th scope="row"><label for="vg_play_color">Play-ikon – bakgrunn</label></th>
-							<td>
+				<main class="vg-main">
+					<section class="vg-tab is-on" id="vg-tab-slider" role="tabpanel">
+						<div class="vg-card">
+							<h2>Slider</h2>
+							<p class="vg-sub">Utseende på videokortene i den horisontale slideren.</p>
+							<div class="vg-row">
+								<div>
+									<label class="vg-t" for="vg_play_color">Play-ikon – bakgrunn</label>
+									<span class="vg-h">Bakgrunnsfargen på play-sirkelen. Ikonet er alltid hvitt. Tom bruker standard, semi-transparent hvit.</span>
+								</div>
 								<input
 									type="text"
-									name="<?php echo esc_attr(self::OPTION_PLAY_COLOR); ?>"
 									id="vg_play_color"
-									class="vg-color-field"
-									value="<?php echo esc_attr(self::get(self::OPTION_PLAY_COLOR)); ?>"
+									class="vg-input vg-color-field"
+									data-field="<?php echo esc_attr(self::OPTION_PLAY_COLOR); ?>"
+									value="<?php echo esc_attr($opts[self::OPTION_PLAY_COLOR]); ?>"
 									data-default-color=""
 								>
-								<p class="description">Bakgrunnsfargen på play-sirkelen. Ikonet er alltid hvitt. La stå tom for standard semi-transparent hvit.</p>
-							</td>
-						</tr>
-					</table>
-				</div>
+							</div>
+						</div>
+					</section>
 
-				<div class="vg-settings-section">
-					<h2 class="vg-settings-section__title">Videosider</h2>
-					<p class="vg-settings-section__lead">Utseende på enkeltsider for hver video (<code>/video/…</code>).</p>
-					<table class="form-table" role="presentation">
-						<tr>
-							<th scope="row"><label for="vg_single_bg">Sidebakgrunn</label></th>
-							<td>
+					<section class="vg-tab" id="vg-tab-sider" role="tabpanel" hidden>
+						<div class="vg-card">
+							<h2>Videosider</h2>
+							<p class="vg-sub">Utseende på enkeltsider for hver video (<code>/video/…</code>).</p>
+							<div class="vg-row">
+								<div>
+									<label class="vg-t" for="vg_single_bg">Sidebakgrunn</label>
+									<span class="vg-h">Bakgrunnsfarge på hovedinnholdet. Tom arver fra temaet.</span>
+								</div>
 								<input
 									type="text"
-									name="<?php echo esc_attr(self::OPTION_SINGLE_BG); ?>"
 									id="vg_single_bg"
-									class="vg-color-field"
-									value="<?php echo esc_attr(self::get(self::OPTION_SINGLE_BG)); ?>"
+									class="vg-input vg-color-field"
+									data-field="<?php echo esc_attr(self::OPTION_SINGLE_BG); ?>"
+									value="<?php echo esc_attr($opts[self::OPTION_SINGLE_BG]); ?>"
 									data-default-color=""
 								>
-								<p class="description">Bakgrunnsfarge på hovedinnholdet på videosiden. Tom = arver fra tema.</p>
-							</td>
-						</tr>
-						<tr>
-							<th scope="row"><label for="vg_project_btn_color">«Se prosjekt»-knapp – farge</label></th>
-							<td>
-								<select name="<?php echo esc_attr(self::OPTION_PROJECT_BTN_COLOR); ?>" id="vg_project_btn_color">
+							</div>
+							<div class="vg-row">
+								<div>
+									<label class="vg-t" for="vg_project_btn_color">«Se prosjekt»-knapp – farge</label>
+									<span class="vg-h">Bruker Flatsome sine knappefarger.</span>
+								</div>
+								<select id="vg_project_btn_color" class="vg-input" data-field="<?php echo esc_attr(self::OPTION_PROJECT_BTN_COLOR); ?>">
 									<?php foreach (self::get_button_colors() as $value => $label) : ?>
-										<option value="<?php echo esc_attr($value); ?>" <?php selected(self::get(self::OPTION_PROJECT_BTN_COLOR), $value); ?>>
+										<option value="<?php echo esc_attr($value); ?>" <?php selected($opts[self::OPTION_PROJECT_BTN_COLOR], $value); ?>>
 											<?php echo esc_html($label); ?>
 										</option>
 									<?php endforeach; ?>
 								</select>
-								<p class="description">Bruker Flatsome sine knappefarger (primary / secondary).</p>
-							</td>
-						</tr>
-						<tr>
-							<th scope="row"><label for="vg_project_btn_size">«Se prosjekt»-knapp – størrelse</label></th>
-							<td>
-								<select name="<?php echo esc_attr(self::OPTION_PROJECT_BTN_SIZE); ?>" id="vg_project_btn_size">
+							</div>
+							<div class="vg-row">
+								<div>
+									<label class="vg-t" for="vg_project_btn_size">«Se prosjekt»-knapp – størrelse</label>
+									<span class="vg-h">Samme størrelser som Flatsome-knapper.</span>
+								</div>
+								<select id="vg_project_btn_size" class="vg-input" data-field="<?php echo esc_attr(self::OPTION_PROJECT_BTN_SIZE); ?>">
 									<?php foreach (self::get_button_sizes() as $value => $label) : ?>
-										<option value="<?php echo esc_attr($value); ?>" <?php selected(self::get(self::OPTION_PROJECT_BTN_SIZE), $value); ?>>
+										<option value="<?php echo esc_attr($value); ?>" <?php selected($opts[self::OPTION_PROJECT_BTN_SIZE], $value); ?>>
 											<?php echo esc_html($label); ?>
 										</option>
 									<?php endforeach; ?>
 								</select>
-								<p class="description">Samme størrelsesvalg som Flatsome-knapper (f.eks. Large, Larger).</p>
-							</td>
-						</tr>
-					</table>
-				</div>
+							</div>
+						</div>
+					</section>
 
-				<div class="vg-settings-section">
-					<h2 class="vg-settings-section__title">Seksjonen «Se flere videoer»</h2>
-					<p class="vg-settings-section__lead">Utseende på slideren nederst på videoundersider.</p>
-					<table class="form-table" role="presentation">
-						<tr>
-							<th scope="row"><label for="vg_more_bg">Seksjonsbakgrunn</label></th>
-							<td>
+					<section class="vg-tab" id="vg-tab-flere" role="tabpanel" hidden>
+						<div class="vg-card">
+							<h2>Seksjonen «Se flere videoer»</h2>
+							<p class="vg-sub">Utseende på slideren nederst på videoundersider.</p>
+							<div class="vg-row">
+								<div>
+									<label class="vg-t" for="vg_more_bg">Seksjonsbakgrunn</label>
+									<span class="vg-h">Bakgrunnsfarge bak «Se flere videoer». Tom arver fra temaet.</span>
+								</div>
 								<input
 									type="text"
-									name="<?php echo esc_attr(self::OPTION_MORE_BG); ?>"
 									id="vg_more_bg"
-									class="vg-color-field"
-									value="<?php echo esc_attr(self::get(self::OPTION_MORE_BG)); ?>"
+									class="vg-input vg-color-field"
+									data-field="<?php echo esc_attr(self::OPTION_MORE_BG); ?>"
+									value="<?php echo esc_attr($opts[self::OPTION_MORE_BG]); ?>"
 									data-default-color=""
 								>
-								<p class="description">Bakgrunnsfarge bak «Se flere videoer» og tilhørende slider. Tom = arver fra tema.</p>
-							</td>
-						</tr>
-					</table>
-				</div>
+							</div>
+						</div>
+					</section>
 
-				<div class="vg-settings-section">
-					<h2 class="vg-settings-section__title">Shortcodes</h2>
-					<p class="vg-settings-section__lead">Bruk disse shortcodene i innhold, UX Builder eller widgets.</p>
-					<table class="form-table" role="presentation">
-						<tr>
-							<th scope="row">Videogalleri</th>
-							<td>
+					<section class="vg-tab" id="vg-tab-koder" role="tabpanel" hidden>
+						<div class="vg-card">
+							<h2>Shortcodes</h2>
+							<p class="vg-sub">Bruk disse i innhold, UX Builder eller widgets.</p>
+							<div class="vg-row">
+								<div>
+									<span class="vg-t">Videogalleri</span>
+									<span class="vg-h">Horisontal slider med publiserte videoer. <code>prosjekt_id="123"</code> filtrerer på koblet innhold.</span>
+								</div>
 								<code>[videogalleri]</code>
-								<p class="description">Horisontal slider med alle publiserte videoer. Valgfritt: <code>prosjekt_id="123"</code> for å filtrere på koblet innhold.</p>
-							</td>
-						</tr>
-						<tr>
-							<th scope="row">Koblet video</th>
-							<td>
+							</div>
+							<div class="vg-row">
+								<div>
+									<span class="vg-t">Koblet video</span>
+									<span class="vg-h">Videoen som er koblet til gjeldende side. Valgfritt: <code>tittel="ja"</code>, <code>info="ja"</code>, <code>lenke="ja"</code>, <code>video_id="456"</code>.</span>
+								</div>
 								<code>[videogalleri_video]</code>
-								<p class="description">Viser videoen som er koblet til gjeldende side/innlegg. Valgfritt: <code>tittel="ja"</code>, <code>info="ja"</code>, <code>lenke="ja"</code>, <code>video_id="456"</code>.</p>
-							</td>
-						</tr>
-					</table>
-				</div>
+							</div>
+							<div class="vg-row">
+								<div>
+									<span class="vg-t">Videospiller</span>
+									<span class="vg-h">Frittstående spiller. Avrunding og kontrollfarge settes på elementet i UX Builder.</span>
+								</div>
+								<code>[videogalleri_spiller]</code>
+							</div>
+						</div>
+					</section>
+				</main>
+			</div>
 
-				<?php submit_button('Lagre innstillinger'); ?>
-			</form>
+			<div class="vg-save" id="vg-save" role="region" aria-label="Ulagrede endringer">
+				<span>Du har ulagrede endringer</span>
+				<button type="button" class="vg-btn" id="vg-rst">Tilbakestill</button>
+				<button type="button" class="vg-btn is-primary" id="vg-sv">Lagre endringer</button>
+			</div>
+			<div class="vg-toast" id="vg-toast" role="status">Endringene er lagret</div>
 		</div>
 		<?php
 	}

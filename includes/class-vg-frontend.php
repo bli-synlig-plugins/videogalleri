@@ -7,6 +7,7 @@ class VG_Frontend {
 	public static function init() {
 		add_shortcode('videogalleri', array(__CLASS__, 'shortcode_slider'));
 		add_shortcode('videogalleri_video', array(__CLASS__, 'shortcode_embed'));
+		add_shortcode('videogalleri_spiller', array(__CLASS__, 'shortcode_player'));
 		add_action('wp_enqueue_scripts', array(__CLASS__, 'register_assets'));
 		add_action('wp_enqueue_scripts', array(__CLASS__, 'maybe_enqueue_assets'), 20);
 		add_action('ux_builder_enqueue_scripts', array(__CLASS__, 'enqueue_assets'));
@@ -54,6 +55,7 @@ class VG_Frontend {
 		if (
 			has_shortcode($post->post_content, 'videogalleri')
 			|| has_shortcode($post->post_content, 'videogalleri_video')
+			|| has_shortcode($post->post_content, 'videogalleri_spiller')
 		) {
 			self::enqueue_assets();
 		}
@@ -419,6 +421,167 @@ class VG_Frontend {
 					<?php endif; ?>
 				</div>
 			<?php endif; ?>
+		</div>
+		<?php
+		return ob_get_clean();
+	}
+
+	public static function shortcode_player($atts, $content = '') {
+		$atts = shortcode_atts(array(
+			'kilde'      => '',
+			'radius'     => '16',
+			'farge'      => '',
+			'autoplay'   => '',
+			'dempet'     => '',
+			'loop'       => '',
+			'class'      => '',
+			'id'         => '',
+		), $atts, 'videogalleri_spiller');
+
+		$raw = trim((string) $atts['kilde']);
+		if ($raw === '') {
+			$raw = trim((string) $content);
+		}
+
+		self::enqueue_assets();
+
+		return self::render_player(array(
+			'source'   => $raw,
+			'radius'   => self::player_radius($atts['radius']),
+			'color'    => VG_Settings::sanitize_color($atts['farge']),
+			'autoplay' => self::is_enabled($atts['autoplay']),
+			'muted'    => self::is_enabled($atts['dempet']),
+			'loop'     => self::is_enabled($atts['loop']),
+			'class'    => self::player_classes($atts['class']),
+			'id'       => self::player_id($atts['id']),
+		));
+	}
+
+	private static function is_enabled($value) {
+		return in_array(strtolower(trim((string) $value)), array('1', 'true', 'yes', 'on', 'ja'), true);
+	}
+
+	private static function player_radius($value) {
+		$value = (int) preg_replace('/[^0-9-]/', '', (string) $value);
+		if ($value < 0) {
+			return 0;
+		}
+		if ($value > 48) {
+			return 48;
+		}
+		return $value;
+	}
+
+	private static function player_classes($value) {
+		$classes = array();
+		foreach (preg_split('/\s+/', trim((string) $value)) as $class) {
+			$clean = sanitize_html_class($class);
+			if ($clean !== '') {
+				$classes[] = $clean;
+			}
+		}
+		return $classes;
+	}
+
+	private static function player_id($value) {
+		$value = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $value);
+		return is_string($value) ? $value : '';
+	}
+
+	private static function render_player(array $config) {
+		$resolved = VG_Repository::resolve_video_source($config['source']);
+		$video = $resolved['video'];
+		$kind = ($video && isset($video['kind'])) ? $video['kind'] : 'iframe';
+		$is_file = $video && $kind === 'file';
+		$is_iframe = $video && !$is_file;
+		$autoplay = $config['autoplay'];
+		$muted = $config['muted'] || $autoplay;
+
+		$classes = array('vg-player');
+		if ($is_file) {
+			$classes[] = 'vg-player--file';
+		} elseif ($is_iframe) {
+			$classes[] = 'vg-player--iframe';
+		} else {
+			$classes[] = 'vg-player--empty';
+		}
+		$classes = array_merge($classes, $config['class']);
+
+		$style = '--vg-radius:' . (int) $config['radius'] . 'px';
+		if ($config['color'] !== '') {
+			$style .= ';--vg-accent:' . $config['color'];
+		}
+
+		if ($config['source'] === '') {
+			$message = 'Lim inn en videolenke eller Kontainer-kode for å vise videoen.';
+		} else {
+			$message = 'Lenken ble ikke gjenkjent. Bruk YouTube, Vimeo eller Kontainer.';
+		}
+
+		$player_id = $config['id'] !== '' ? $config['id'] : wp_unique_id('vg-player-');
+		$label_id = $player_id . '-status';
+
+		ob_start();
+		?>
+		<div
+			<?php echo $config['id'] !== '' ? 'id="' . esc_attr($config['id']) . '" ' : ''; ?>
+			class="<?php echo esc_attr(implode(' ', $classes)); ?>"
+			style="<?php echo esc_attr($style); ?>"
+		>
+			<div class="vg-player__stage" style="--vg-stage-pad:<?php echo esc_attr($resolved['aspect_ratio']); ?>">
+				<?php if ($is_file) : ?>
+					<video
+						class="vg-player__media"
+						src="<?php echo esc_url($video['embed_url']); ?>"
+						playsinline
+						preload="metadata"
+						<?php echo $autoplay ? 'autoplay' : ''; ?>
+						<?php echo $muted ? 'muted' : ''; ?>
+						<?php echo $config['loop'] ? 'loop' : ''; ?>
+					></video>
+					<p class="vg-player__message" id="<?php echo esc_attr($label_id); ?>" hidden>Videoen kunne ikke lastes.</p>
+					<?php echo self::render_player_bar(false); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+				<?php elseif ($is_iframe) : ?>
+					<iframe
+						class="vg-player__media"
+						src="<?php echo esc_url($video['embed_url']); ?>"
+						title="Video"
+						allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+						allowfullscreen
+						loading="lazy"
+					></iframe>
+				<?php else : ?>
+					<p class="vg-player__message" id="<?php echo esc_attr($label_id); ?>"><?php echo esc_html($message); ?></p>
+					<?php echo self::render_player_bar(true); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+				<?php endif; ?>
+			</div>
+		</div>
+		<?php
+		return ob_get_clean();
+	}
+
+	private static function render_player_bar($idle) {
+		$disabled = $idle ? ' disabled' : '';
+		ob_start();
+		?>
+		<div class="vg-player__bar<?php echo $idle ? ' is-idle' : ''; ?>">
+			<button type="button" class="vg-player__play" aria-label="Spill av"<?php echo $disabled; ?>>
+				<?php echo VG_Icons::play(16, 'vg-player__icon vg-player__icon--play'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+				<?php echo VG_Icons::pause(16, 'vg-player__icon vg-player__icon--pause', true); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+			</button>
+			<span class="vg-player__time">0:00 / 0:00</span>
+			<input class="vg-player__seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Spol"<?php echo $disabled; ?>>
+			<div class="vg-player__volume">
+				<button type="button" class="vg-player__mute" aria-label="Lyd av" aria-pressed="false"<?php echo $disabled; ?>>
+					<?php echo VG_Icons::volume(18, 'vg-player__icon vg-player__icon--sound'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo VG_Icons::volume_low(18, 'vg-player__icon vg-player__icon--low', true); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo VG_Icons::volume_off(18, 'vg-player__icon vg-player__icon--muted', true); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+				</button>
+				<input class="vg-player__level" type="range" min="0" max="100" value="100" step="1" aria-label="Volum"<?php echo $disabled; ?>>
+			</div>
+			<button type="button" class="vg-player__full" aria-label="Fullskjerm"<?php echo $disabled; ?>>
+				<?php echo VG_Icons::maximize(18, 'vg-player__icon'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+			</button>
 		</div>
 		<?php
 		return ob_get_clean();

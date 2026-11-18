@@ -94,6 +94,34 @@ class VG_Repository {
 		return $input;
 	}
 
+	/**
+	 * Tolker en lenke eller innlimt iframe-/video-kode uten å lagre den.
+	 *
+	 * @return array{url:string, video:array|null, aspect_ratio:string}
+	 */
+	public static function resolve_video_source($raw) {
+		$input = self::normalize_video_input($raw);
+		$url = esc_url_raw($input['url']);
+		$video = ($url !== '') ? self::parse_video_url($url) : null;
+		$aspect = '56.25%';
+
+		if ($video && !empty($video['is_vertical'])) {
+			$aspect = '177.7778%';
+		}
+
+		$width = isset($input['width']) ? (float) $input['width'] : 0;
+		$height = isset($input['height']) ? (float) $input['height'] : 0;
+		if ($width > 0 && $height > 0) {
+			$aspect = round(($height / $width) * 100, 4) . '%';
+		}
+
+		return array(
+			'url'          => $url,
+			'video'        => $video,
+			'aspect_ratio' => $aspect,
+		);
+	}
+
 	public static function get_aspect_ratio($post_id) {
 		$ratio = (string) get_post_meta($post_id, VG_META_ASPECT_RATIO, true);
 		if ($ratio !== '' && preg_match('/^\d+(\.\d+)?%$/', $ratio)) {
